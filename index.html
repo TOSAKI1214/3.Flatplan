@@ -1,0 +1,1134 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>台割作成</title>
+<style>
+  :root {
+    --ink: #1f2328;
+    --muted: #656d76;
+    --line: #d0d7de;
+    --accent: #1f4e79;
+    --accent-soft: #eaf1f8;
+    --bg: #f3f4f6;
+    --paper: #ffffff;
+    --sel: #2f81f7;
+
+    --st-keep: #fff200;   --st-keep-ink: #1f2328;
+    --st-new: #e60012;    --st-new-ink: #ffffff;
+    --st-common: #7f7f7f; --st-common-ink: #ffffff;
+    --st-tbd: #9dd3f5;    --st-tbd-ink: #1f2328;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Meiryo", "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Yu Gothic", "Noto Sans JP", sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  .toolbar {
+    position: sticky; top: 0; z-index: 10;
+    display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+    padding: 10px 16px;
+    background: var(--paper);
+    border-bottom: 1px solid var(--line);
+  }
+  .toolbar h1 { font-size: 16px; margin: 0 auto 0 0; }
+  .toolbar label { color: var(--muted); font-size: 12px; display: flex; gap: 4px; align-items: center; }
+  button, select, input, textarea {
+    font: inherit; font-size: 13px;
+  }
+  button, select {
+    padding: 6px 12px;
+    border: 1px solid var(--line); border-radius: 6px;
+    background: var(--paper); color: var(--ink); cursor: pointer;
+  }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.danger { color: #b42318; }
+  button:hover { filter: brightness(0.96); }
+  button:disabled { opacity: .45; cursor: default; }
+  input[type=text], input[type=number], input[type=date], textarea {
+    padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--paper); color: var(--ink);
+  }
+  input[type=number] { width: 72px; }
+
+  main { max-width: 1280px; margin: 0 auto; padding: 16px; }
+
+  /* ---- 台割シート（A4横） ---- */
+  .sheets { display: flex; flex-direction: column; gap: 16px; }
+  .sheet {
+    background: var(--paper);
+    box-shadow: 0 2px 12px rgba(0,0,0,.08);
+    padding: 22px 28px 18px;
+    display: flex; flex-direction: column;
+  }
+  .sheet-title { font-size: 15px; font-weight: bold; margin: 0 0 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sheet-title .sub { font-weight: normal; margin-left: 1em; }
+  .sheet-note { font-size: 11px; color: var(--muted); margin: -4px 0 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .rows { flex: 1; display: flex; flex-direction: column; gap: 10px; }
+  /* 行：頁番号 / 上余白 / 上段帯 / 間 / 下段帯 / 下余白（頁の枠は2〜6行目にまたがる） */
+  .row { display: grid; grid-template-rows: auto 0.5fr auto 0.2fr auto 1.6fr; }
+  .sheets { --fs: 1; }
+  .pno { font-size: calc(10px * var(--fs)); line-height: 1.2; align-self: end; white-space: nowrap; }
+  .pno.l { justify-self: start; }
+  .pno.r { justify-self: end; }
+  .pg {
+    position: relative;
+    aspect-ratio: 1 / 1.414;
+    border: 1px solid var(--ink);
+    background: var(--paper) center / cover no-repeat;
+    cursor: pointer;
+    user-select: none;
+  }
+  .pg.l { border-right: 0; }
+  .pg.empty { visibility: hidden; }
+  .pg.sel { outline: 3px solid var(--sel); outline-offset: -3px; z-index: 1; }
+  .pg .memo {
+    position: absolute; left: 2px; right: 2px; bottom: 2px;
+    font-size: calc(8px * var(--fs)); line-height: 1.25; color: var(--muted);
+    max-height: 2.5em; overflow: hidden;
+  }
+  .hide-memo .pg .memo { display: none; }
+  .band {
+    align-self: start;
+    font-size: calc(10px * var(--fs)); line-height: 1.3;
+    padding: 1px 4px;
+    border: 1px solid rgba(0,0,0,.35);
+    overflow: hidden; word-break: break-all;
+    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+    text-align: center;
+    pointer-events: none;
+    z-index: 2;
+  }
+  .dense .pno, .dense .band { font-size: calc(8.5px * var(--fs)); }
+  .dense .pg .memo { font-size: calc(7px * var(--fs)); }
+  .band.t2 { -webkit-line-clamp: 3; }
+  .band.t1 { grid-row: 3; }
+  .band.t2 { grid-row: 5; }
+  .st-keep   { background: var(--st-keep);   color: var(--st-keep-ink); }
+  .st-new    { background: var(--st-new);    color: var(--st-new-ink); }
+  .st-common { background: var(--st-common); color: var(--st-common-ink); }
+  .st-tbd    { background: var(--st-tbd);    color: var(--st-tbd-ink); }
+  .st-none   { background: #fff; color: var(--ink); }
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: calc(10px * var(--fs)); margin-top: 8px; }
+  .legend span { display: inline-flex; align-items: center; gap: 4px; }
+  .legend i { display: inline-block; width: 28px; height: 10px; border: 1px solid rgba(0,0,0,.35); }
+
+  /* ---- 編集パネル ---- */
+  .panel {
+    margin-top: 16px; padding: 12px 16px;
+    background: var(--paper); border: 1px solid var(--line); border-radius: 8px;
+  }
+  .panel h2 { font-size: 14px; margin: 0 0 8px; }
+  .panel .hint { color: var(--muted); font-size: 12px; margin: 0; }
+  .fields { display: grid; grid-template-columns: auto 1fr auto; gap: 6px 8px; align-items: center; max-width: 720px; }
+  .fields > label { color: var(--muted); font-size: 12px; }
+  .fields input[type=text], .fields textarea { width: 100%; }
+  .fields textarea { grid-column: 2 / 4; min-height: 48px; resize: vertical; }
+  .actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .sep { width: 1px; background: var(--line); margin: 0 4px; }
+  .settings { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; }
+  .settings label { display: flex; gap: 6px; align-items: center; font-size: 12px; color: var(--muted); }
+  .settings input[type=text] { width: 220px; }
+  .legend-edit { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: 8px; }
+  .legend-edit label { display: flex; gap: 6px; align-items: center; font-size: 12px; }
+  .legend-edit i { display: inline-block; width: 22px; height: 12px; border: 1px solid rgba(0,0,0,.35); }
+  .warn { color: #b42318; font-size: 12px; }
+  .import-info { margin: 0 0 12px; padding: 8px 12px; background: var(--accent-soft); border: 1px solid #c5d7ea; border-radius: 8px; font-size: 13px; }
+  .import-info button { padding: 2px 10px; font-size: 12px; margin-left: 4px; }
+  .import-info ul { margin: 4px 0 0; padding-left: 20px; color: #b42318; font-size: 12px; }
+  dialog { border: 1px solid var(--line); border-radius: 10px; padding: 16px 20px; max-width: 560px; width: calc(100% - 32px); }
+  dialog::backdrop { background: rgba(0,0,0,.3); }
+  dialog h2 { font-size: 15px; margin: 0 0 10px; }
+  dialog .row2 { display: flex; gap: 8px; align-items: center; margin: 8px 0; font-size: 13px; }
+  dialog .row2 select { flex: 1; }
+  dialog pre { background: var(--bg); padding: 8px; border-radius: 6px; font-size: 12px; white-space: pre-wrap; max-height: 220px; overflow: auto; margin: 8px 0; }
+  dialog .actions { justify-content: flex-end; }
+
+  /* ---- ページ一覧 ---- */
+  table.list { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 13px; }
+  table.list th, table.list td { border-bottom: 1px solid var(--line); padding: 3px 4px; text-align: left; vertical-align: top; }
+  table.list th { color: var(--muted); font-weight: normal; font-size: 12px; background: var(--accent-soft); }
+  table.list td.no { white-space: nowrap; font-weight: bold; width: 48px; cursor: pointer; }
+  table.list tr.sel td { background: #eef5ff; }
+  table.list tr.spread-end td { border-bottom-color: #9aa4ae; }
+  table.list input[type=text], table.list select { width: 100%; padding: 3px 6px; border-radius: 4px; }
+  table.list td.st { width: 108px; }
+  table.list select { padding: 3px 4px; }
+  table.list .pv { display: none; }
+
+  @media (max-width: 720px) {
+    main { padding: 8px; }
+    .sheet { padding: 10px; }
+    .pno, .band { font-size: 7px; }
+    .fields { grid-template-columns: 1fr; }
+    .fields textarea { grid-column: auto; }
+  }
+
+  @media print {
+    @page { size: A4 landscape; margin: 8mm; }
+    body { background: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .toolbar, .panel, .no-print { display: none !important; }
+    main { max-width: none; padding: 0; }
+    .sheets { display: block; }
+    .sheet { box-shadow: none; padding: 0; width: 100%; break-after: page; }
+    .sheet:last-child { break-after: auto; }
+    .pg.sel { outline: none; }
+    body.print-list .panel.list-panel { display: block !important; break-before: page; border: 0; padding: 0; }
+    body.print-list .list-panel .actions, body.print-list .list-panel .hint { display: none; }
+    body.print-list table.list input, body.print-list table.list select { display: none; }
+    body.print-list table.list .pv { display: inline; }
+    body.print-list table.list th, body.print-list table.list td { font-size: 10px; padding: 2px 4px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  <h1>台割作成</h1>
+  <button id="btnUndo" title="元に戻す（Ctrl+Z）">元に戻す</button>
+  <label><input type="checkbox" id="optMemo" checked> メモを表示</label>
+  <label><input type="checkbox" id="optPrintList"> 一覧も印刷</label>
+  <button id="btnNew">新規</button>
+  <button id="btnSample">サンプルを読込</button>
+  <button id="btnXlsx">Excel読込</button>
+  <button id="btnLoad">JSON読込</button>
+  <button id="btnSave">JSON保存</button>
+  <button id="btnPptx">PowerPoint出力</button>
+  <button id="btnPrint" class="primary">印刷 / PDF</button>
+  <input type="file" id="fileJson" accept="application/json,.json" hidden>
+  <input type="file" id="fileXlsx" accept=".xlsx,.xlsm,.xls,.csv" multiple hidden>
+</div>
+
+<main>
+  <div class="import-info no-print" id="importInfo" hidden></div>
+  <div class="sheets" id="sheets"></div>
+
+  <section class="panel" id="editPanel">
+    <h2 id="selTitle">ページを選択してください</h2>
+    <p class="hint" id="selHint">台割のページをクリックで選択、Shift＋クリックで範囲選択。選択したページにまとめて内容・区分を設定できます。</p>
+    <div id="selBody" hidden>
+      <div class="fields">
+        <label for="fA">上段</label>
+        <input type="text" id="fA" placeholder="例：コンセプトページ">
+        <select id="fAs"></select>
+        <label for="fB">下段</label>
+        <input type="text" id="fB" placeholder="例：トピックス">
+        <select id="fBs"></select>
+        <label for="fMemo" id="lMemo">メモ</label>
+        <textarea id="fMemo" placeholder="ページの内容・素材・備考など"></textarea>
+      </div>
+      <div class="actions">
+        <button class="primary" id="btnApply">選択ページに反映</button>
+        <button id="btnImg">画像を設定</button>
+        <button id="btnImgClear">画像を削除</button>
+        <span class="sep"></span>
+        <button id="btnInsBefore">前に2ページ挿入</button>
+        <button id="btnInsAfter">後ろに2ページ挿入</button>
+        <button id="btnDel" class="danger">選択ページを削除</button>
+        <span class="sep"></span>
+        <button id="btnClearSel">選択解除</button>
+      </div>
+      <p class="hint" style="margin-top:6px">画像は見開き2ページを選択して横長の画像を設定すると、左右に分割して割り当てます。挿入・削除は以降のページが繰り上がり／繰り下がります（表紙は対象外）。</p>
+      <input type="file" id="fileImg" accept="image/*" hidden>
+    </div>
+  </section>
+
+  <section class="panel no-print">
+    <h2>設定</h2>
+    <div class="settings">
+      <label>タイトル <input type="text" id="sTitle"></label>
+      <label>作成日 <input type="date" id="sDate"></label>
+      <label>仕様・備考 <input type="text" id="sNote" placeholder="例：B5判 4C 平綴じ"></label>
+      <label>本文ページ数 <input type="number" id="sPages" min="2" max="400" step="2"></label>
+      <label>表紙 <select id="sCoverMode">
+        <option value="none">なし</option>
+        <option value="h1h4">H1・H4（見開き1つ）</option>
+        <option value="four">表1〜表4</option>
+      </select></label>
+      <label>表記 <select id="sCoverLabel"><option value="H">H1〜H4</option><option value="表">表1〜表4</option></select></label>
+      <label>綴じ <select id="sBinding"><option value="left">左開き（横組み）</option><option value="right">右開き（縦組み）</option></select></label>
+      <label>1行の見開き数 <input type="number" id="sSpreads" min="2" max="14"></label>
+      <label>1枚の行数 <input type="number" id="sRows" min="1" max="20"></label>
+      <label>文字サイズ <select id="sFont"><option value="1">標準</option><option value="1.25">大</option><option value="1.5">特大</option></select></label>
+      <span class="warn" id="warnPages"></span>
+    </div>
+    <div class="legend-edit" id="legendEdit"></div>
+  </section>
+
+  <dialog id="dlgXlsx">
+    <h2>読み込むシートを選ぶ</h2>
+    <div class="row2"><label for="xSheet">シート</label><select id="xSheet"></select></div>
+    <pre id="xPreview"></pre>
+    <p class="hint">日付の新しい順に並んでいます。「ページ」「タイトル」の見出し行がある1行1ページの表を読み込みます。「第○章」の行は上段（章）、各行のタイトルは下段になり、タイトルが空欄・「↓」のページは前のページの続きとして扱います。その他の列はメモに入ります。</p>
+    <div class="actions">
+      <button id="xCancel">キャンセル</button>
+      <button id="xOk" class="primary">読み込む</button>
+    </div>
+  </dialog>
+
+  <section class="panel list-panel">
+    <h2>ページ一覧</h2>
+    <p class="hint">1ページずつ内容を入力できます。同じ内容・同じ区分が続くページは台割上で1本の帯にまとまります。</p>
+    <table class="list">
+      <thead><tr><th>頁</th><th>上段</th><th>区分</th><th>下段</th><th>区分</th><th>メモ</th></tr></thead>
+      <tbody id="listBody"></tbody>
+    </table>
+  </section>
+</main>
+
+<script>
+(() => {
+  const STORE_KEY = 'daiwari-v1';
+  const $ = (id) => document.getElementById(id);
+
+  const STATUSES = [
+    { id: '',       name: '（なし）', cls: 'st-none',   fill: 'FFFFFF', ink: '1F2328' },
+    { id: 'keep',   name: '継続',     cls: 'st-keep',   fill: 'FFF200', ink: '1F2328' },
+    { id: 'new',    name: '新規・再編集', cls: 'st-new', fill: 'E60012', ink: 'FFFFFF' },
+    { id: 'common', name: '共通',     cls: 'st-common', fill: '7F7F7F', ink: 'FFFFFF' },
+    { id: 'tbd',    name: '検討中',   cls: 'st-tbd',    fill: '9DD3F5', ink: '1F2328' },
+  ];
+  const stOf = (id) => STATUSES.find(s => s.id === id) || STATUSES[0];
+  const DEFAULT_LEGEND = { keep: '既存ページをベースに更新', new: '再編集および新規作成ページ', common: '共通ページ', tbd: '検討中' };
+  const COVER_KEYS = ['H1', 'H2', 'H3', 'H4'];
+
+  const blankPage = () => ({ a: '', as: '', b: '', bs: '', memo: '', img: '' });
+  const blankCovers = () => Object.fromEntries(COVER_KEYS.map(k => [k, blankPage()]));
+  const today = () => new Date().toISOString().slice(0, 10);
+  const blank = () => ({
+    title: '', note: '', date: today(),
+    coverMode: 'h1h4', coverLabel: 'H', binding: 'left',
+    spreadsPerRow: 7, rowsPerSheet: 6, fontScale: 1,
+    legend: { ...DEFAULT_LEGEND },
+    cover: blankCovers(),
+    body: Array.from({ length: 16 }, blankPage),
+  });
+
+  // サンプル：2028パンフ台割（トピックス2ページを巻頭に追加する案）
+  function sample() {
+    const s = blank();
+    s.title = '2028パンフ';
+    s.date = '2026-09-25';
+    s.body = Array.from({ length: 66 }, blankPage);
+    s.cover.H1.memo = '表紙';
+    s.cover.H4.memo = '裏表紙';
+    const set = (from, to, a, as, b = '', bs = '') => {
+      for (let p = from; p <= to; p++) Object.assign(s.body[p - 1], { a, as, b, bs });
+    };
+    const memo = (p, text) => { s.body[p - 1].memo = text; };
+    set(1, 8, 'コンセプトページ', 'keep');
+    set(3, 4, 'コンセプトページ', 'keep', 'トピックス', 'new');
+    set(9, 10, '将来イメージ', 'keep');
+    set(11, 14, '企業ゼミ', 'keep');
+    set(15, 18, '企業連携', 'keep', 'プログレッシブセミナーと連携授業', 'new');
+    set(19, 20, '美容科扉', 'keep');
+    set(21, 22, '2年間共通の学び', 'keep');
+    set(23, 24, '1年のコース', 'keep');
+    set(25, 26, '2年のコース', 'keep');
+    set(27, 28, '国家試験対策', 'keep');
+    set(29, 30, '取得可能な資格', 'keep');
+    set(31, 32, '学習環境', 'keep');
+    set(33, 34, '講師紹介', 'keep');
+    set(35, 38, '実践的な学び', 'keep', 'コンテスト / イベント', 'new');
+    set(39, 40, '年間スケジュール', 'keep');
+    set(41, 48, '就職実績', 'keep');
+    set(49, 50, '就職サポート', 'keep');
+    set(51, 52, '海外研修', 'keep');
+    set(53, 66, '共通ページ', 'common');
+    memo(1, '巻頭：IDENTITY 導入（現行P1）');
+    memo(2, '巻頭：IDENTITY 見開き左');
+    memo(3, 'TOPICS①：コンテスト受賞・フェードバトルなど');
+    memo(4, 'TOPICS②：イベント実績・検定全員合格など');
+    memo(5, 'IDENTITY 在校生紹介（現行P2–3）');
+    memo(7, 'IDENTITY 在校生紹介（現行P4–5）');
+    memo(9, '麻生美容で目指すプロフェッショナル（現行P6–7）');
+    memo(11, '企業特別ゼミ（現行P8–11）');
+    memo(15, '企業連携＋プログレッシブセミナーを4Pに再編集（現行P12–17）');
+    memo(19, '現行P18–19');
+    memo(21, 'ベーシックプログラム（現行P20–21）');
+    memo(23, '現行P22–23');
+    memo(25, '現行P24–25');
+    memo(27, '現行P26–27');
+    memo(29, '現行P28–29');
+    memo(31, '現行P30–31');
+    memo(33, '現行P32–33');
+    memo(35, 'ART BEAUTY COLLECTION・EVENTを再編集（現行P34–37）。トピックスと内容が重ならないよう「授業としての実践」に寄せる');
+    memo(39, 'SCHOOL PROGRAM（現行P38–39）');
+    memo(41, '現行P40–47');
+    memo(49, '現行P48–49');
+    memo(51, '現行P50–51');
+    memo(53, '共通：ASO History／就職率／学び／キャンパスライフ／NEWS&TOPICS／オープンキャンパス等');
+    return s;
+  }
+
+  let state;
+  try { state = normalize(JSON.parse(localStorage.getItem(STORE_KEY))) || sample(); } catch { state = sample(); }
+  let sel = null; // { from, to } 読み順のセル番号
+  let anchor = null;
+  let sideOf = {}; // セル番号 → 'l' | 'r'（表示上の左右）
+  const undoStack = [];
+
+  function normalize(s) {
+    if (!s || !Array.isArray(s.body)) return null;
+    const fix = (p) => ({ ...blankPage(), ...(p || {}) });
+    const cover = blankCovers();
+    if (Array.isArray(s.cover)) { // 旧形式：[H1, H4]
+      cover.H1 = fix(s.cover[0]); cover.H4 = fix(s.cover[1]);
+    } else if (s.cover) {
+      for (const k of COVER_KEYS) cover[k] = fix(s.cover[k]);
+    }
+    const out = {
+      ...blank(), ...s,
+      legend: { ...DEFAULT_LEGEND, ...(s.legend || {}) },
+      cover,
+      body: s.body.map(fix),
+    };
+    if (!s.coverMode) out.coverMode = s.covers === false ? 'none' : 'h1h4';
+    delete out.covers;
+    return out;
+  }
+
+  let saveWarned = false;
+  const save = () => {
+    try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); }
+    catch {
+      if (!saveWarned) { saveWarned = true; alert('ブラウザへの自動保存ができませんでした（画像が多すぎる可能性があります）。「JSON保存」でファイルに保存してください。'); }
+    }
+  };
+  const snapshot = () => {
+    undoStack.push(JSON.stringify(state));
+    if (undoStack.length > 50) undoStack.shift();
+    $('btnUndo').disabled = false;
+  };
+  function undo() {
+    if (!undoStack.length) return;
+    state = JSON.parse(undoStack.pop());
+    $('btnUndo').disabled = !undoStack.length;
+    clampSel();
+    save(); renderAll();
+  }
+  const resetSel = () => { sel = null; anchor = null; };
+
+  // ---- ページ構成 ----
+  const coverName = (k) => state.coverLabel === '表' ? '表' + k.slice(1) : k;
+
+  // 読み順のセル一覧
+  function cells() {
+    const c = (k) => ({ label: coverName(k), page: state.cover[k], cover: k });
+    const body = state.body.map((page, i) => ({ label: 'P' + (i + 1), page, body: i }));
+    let list;
+    if (state.coverMode === 'four') list = [c('H1'), c('H2'), ...body, c('H3'), c('H4')];
+    else if (state.coverMode === 'h1h4') list = [c('H1'), c('H4'), ...body];
+    else list = body;
+    list.forEach((x, i) => { x.idx = i; });
+    return list;
+  }
+  const totalPages = () => cells().length;
+
+  // 見開き一覧（左開きのときの [左, 右]）
+  function spreads(list) {
+    const pairs = (arr) => {
+      const out = [];
+      for (let i = 0; i < arr.length; i += 2) out.push([arr[i], arr[i + 1] || null]);
+      return out;
+    };
+    if (state.coverMode !== 'four') return pairs(list);
+    const by = Object.fromEntries(list.filter(c => c.cover).map(c => [c.cover, c]));
+    const body = list.filter(c => c.body !== undefined);
+    const out = [[by.H4, by.H1], [by.H2, body[0] || null]];
+    return out.concat(pairs([...body.slice(1), by.H3]));
+  }
+
+  // 行ごとの表示スロット（右開きは行全体を左右反転）
+  function layout() {
+    const list = cells();
+    const per = Math.max(1, (state.spreadsPerRow | 0) || 7);
+    const sp = spreads(list);
+    const rows = [];
+    for (let i = 0; i < sp.length; i += per) {
+      const slots = [];
+      for (let k = 0; k < per; k++) {
+        const s = sp[i + k] || [null, null];
+        slots.push(s[0], s[1]);
+      }
+      if (state.binding === 'right') slots.reverse();
+      rows.push(slots);
+    }
+    const perSheet = Math.max(1, (state.rowsPerSheet | 0) || 6);
+    const sheets = [];
+    for (let i = 0; i < rows.length; i += perSheet) sheets.push(rows.slice(i, i + perSheet));
+    return { list, per, rows, sheets };
+  }
+
+  function clampSel() {
+    const n = totalPages();
+    if (!sel) return;
+    if (sel.from >= n) { resetSel(); return; }
+    sel.to = Math.min(sel.to, n - 1);
+  }
+  const isSel = (i) => sel && i >= sel.from && i <= sel.to;
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+  function titleText() {
+    const d = state.date ? new Date(state.date + 'T00:00:00') : null;
+    const ds = d && !isNaN(d) ? `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日現在` : '';
+    return {
+      main: `■${state.title || '（タイトル）'} 台割`,
+      sub: `合計${totalPages()}ページ${state.coverMode !== 'none' ? '（表紙込み）' : ''}　${state.binding === 'right' ? '右開き' : '左開き'}　${ds}`,
+    };
+  }
+
+  // 同じ内容・区分が続く範囲を帯にまとめる（行をまたがない）
+  function bands(slots, key) {
+    const out = [];
+    slots.forEach((c, i) => {
+      if (!c) return;
+      const text = c.page[key], st = c.page[key + 's'];
+      if (!text) return;
+      const last = out[out.length - 1];
+      if (last && last.end === i - 1 && last.text === text && last.st === st) last.end = i;
+      else out.push({ start: i, end: i, text, st });
+    });
+    return out;
+  }
+
+  function usedStatuses() {
+    const set = new Set();
+    for (const c of cells()) {
+      if (c.page.a && c.page.as) set.add(c.page.as);
+      if (c.page.b && c.page.bs) set.add(c.page.bs);
+    }
+    return set;
+  }
+  const legendItems = () => {
+    const used = usedStatuses();
+    return STATUSES.filter(s => s.id && state.legend[s.id] && used.has(s.id));
+  };
+
+  function renderSheet() {
+    const t = titleText();
+    const { per, sheets } = layout();
+    // 列：[左頁 右頁 すき間] × 見開き数
+    const tmpl = Array.from({ length: per }, (_, k) => k < per - 1 ? 'minmax(0,1fr) minmax(0,1fr) minmax(0,0.28fr)' : 'minmax(0,1fr) minmax(0,1fr)').join(' ');
+    const col = (i) => Math.floor(i / 2) * 3 + (i % 2) + 1;
+    const legend = legendItems().map(s => `<span><i class="${s.cls}"></i>${esc(state.legend[s.id])}</span>`).join('');
+    sideOf = {};
+    $('sheets').style.setProperty('--fs', state.fontScale || 1);
+    $('sheets').innerHTML = sheets.map((rows, n) => {
+      const rowsHtml = rows.map(slots => {
+        let h = `<div class="row" style="grid-template-columns:${tmpl}">`;
+        slots.forEach((c, i) => {
+          const side = i % 2 ? 'r' : 'l';
+          const pos = `grid-row:2 / 7;grid-column:${col(i)}`;
+          if (!c) { h += `<div class="pg empty ${side}" style="${pos}"></div>`; return; }
+          sideOf[c.idx] = side;
+          h += `<div class="pno ${side}" style="grid-row:1;grid-column:${col(i)}">${esc(c.label)}</div>`;
+          const bg = c.page.img ? `;background-image:url('${c.page.img}')` : '';
+          h += `<div class="pg ${side}${isSel(c.idx) ? ' sel' : ''}" data-i="${c.idx}" style="${pos}${bg}" title="${esc(c.label + (c.page.b ? '：' + c.page.b : '') + (c.page.memo ? '\n' + c.page.memo : ''))}">`
+            + (c.page.memo && !c.page.img ? `<div class="memo">${esc(c.page.memo)}</div>` : '') + '</div>';
+        });
+        for (const [key, tier] of [['a', 't1'], ['b', 't2']]) {
+          for (const b of bands(slots, key)) {
+            h += `<div class="band ${tier} ${stOf(b.st).cls}" style="grid-column:${col(b.start)} / ${col(b.end) + 1}">${esc(b.text)}</div>`;
+          }
+        }
+        return h + '</div>';
+      }).join('');
+      const pageNo = sheets.length > 1 ? `（${n + 1}/${sheets.length}）` : '';
+      return `<div class="sheet${per > 8 ? ' dense' : ''}">`
+        + `<div class="sheet-title">${esc(t.main)}<span class="sub">${esc(t.sub)}${pageNo}</span></div>`
+        + (state.note ? `<div class="sheet-note">${esc(state.note)}</div>` : '')
+        + `<div class="rows">${rowsHtml}</div><div class="legend">${legend}</div></div>`;
+    }).join('');
+    document.body.classList.toggle('hide-memo', !$('optMemo').checked);
+  }
+
+  const stOptions = (v) => STATUSES.map(s => `<option value="${s.id}"${s.id === (v || '') ? ' selected' : ''}>${esc(s.id ? s.name : '（なし）')}</option>`).join('');
+  const countBody = () => cells().slice(sel.from, sel.to + 1).filter(c => c.body !== undefined).length;
+
+  function renderPanel() {
+    const list = cells();
+    if (!sel) {
+      $('selTitle').textContent = 'ページを選択してください';
+      $('selHint').hidden = false;
+      $('selBody').hidden = true;
+      return;
+    }
+    const first = list[sel.from], last = list[sel.to];
+    const single = sel.from === sel.to;
+    $('selTitle').textContent = single ? `${first.label} を編集` : `${first.label}〜${last.label}（${sel.to - sel.from + 1}ページ）を編集`;
+    $('selHint').hidden = true;
+    $('selBody').hidden = false;
+    const p = first.page;
+    $('fA').value = p.a; $('fAs').innerHTML = stOptions(p.as);
+    $('fB').value = p.b; $('fBs').innerHTML = stOptions(p.bs);
+    $('fMemo').value = single ? p.memo : '';
+    $('fMemo').placeholder = single ? 'ページの内容・素材・備考など' : '入力すると選択した全ページのメモを置き換えます（空欄なら変更しません）';
+    const n = countBody();
+    $('btnDel').disabled = !n || state.body.length - n < 2;
+    $('btnImgClear').disabled = !list.slice(sel.from, sel.to + 1).some(c => c.page.img);
+  }
+
+  function renderSettings() {
+    $('sTitle').value = state.title;
+    $('sDate').value = state.date || '';
+    $('sNote').value = state.note || '';
+    $('sPages').value = state.body.length;
+    $('sCoverMode').value = state.coverMode;
+    $('sCoverLabel').value = state.coverLabel;
+    $('sBinding').value = state.binding;
+    $('sSpreads').value = state.spreadsPerRow;
+    $('sRows').value = state.rowsPerSheet;
+    $('sFont').value = String(state.fontScale || 1);
+    const n = totalPages();
+    $('warnPages').textContent = n % 4 ? `※合計${n}ページは4の倍数ではありません（中綴じの場合は4の倍数が必要です）` : '';
+    $('legendEdit').innerHTML = STATUSES.filter(s => s.id).map(s =>
+      `<label><i class="${s.cls}"></i>${esc(s.name)}の凡例 <input type="text" data-legend="${s.id}" value="${esc(state.legend[s.id])}"></label>`).join('');
+  }
+
+  function renderList() {
+    const pv = (v) => `<span class="pv">${esc(v)}</span>`;
+    const stName = (text, st) => text && stOf(st).id ? stOf(st).name : '';
+    $('listBody').innerHTML = cells().map((c, i) => {
+      const p = c.page;
+      return `<tr class="${isSel(i) ? 'sel' : ''}" data-i="${i}">`
+        + `<td class="no" title="クリックで選択">${esc(c.label)}</td>`
+        + `<td><input type="text" data-k="a" value="${esc(p.a)}">${pv(p.a)}</td>`
+        + `<td class="st"><select data-k="as">${stOptions(p.as)}</select>${pv(stName(p.a, p.as))}</td>`
+        + `<td><input type="text" data-k="b" value="${esc(p.b)}">${pv(p.b)}</td>`
+        + `<td class="st"><select data-k="bs">${stOptions(p.bs)}</select>${pv(stName(p.b, p.bs))}</td>`
+        + `<td><input type="text" data-k="memo" value="${esc(p.memo)}">${pv(p.memo)}</td>`
+        + '</tr>';
+    }).join('');
+  }
+
+  function renderAll() {
+    renderSheet(); renderPanel(); renderSettings(); renderList();
+    document.body.classList.toggle('print-list', $('optPrintList').checked);
+  }
+  const refresh = () => { renderSheet(); renderPanel(); };
+
+  // ---- 選択 ----
+  function select(i, extend) {
+    if (extend && anchor !== null) sel = { from: Math.min(anchor, i), to: Math.max(anchor, i) };
+    else { sel = { from: i, to: i }; anchor = i; }
+    renderSheet(); renderPanel();
+    document.querySelectorAll('#listBody tr').forEach(tr => tr.classList.toggle('sel', isSel(+tr.dataset.i)));
+  }
+  $('sheets').addEventListener('click', (e) => {
+    const pg = e.target.closest('.pg[data-i]');
+    if (pg) select(+pg.dataset.i, e.shiftKey);
+  });
+  $('listBody').addEventListener('click', (e) => {
+    const td = e.target.closest('td.no');
+    if (td) select(+td.parentElement.dataset.i, e.shiftKey);
+  });
+  $('btnClearSel').onclick = () => { resetSel(); renderAll(); };
+
+  // ---- 選択ページへの反映 ----
+  $('btnApply').onclick = () => {
+    if (!sel) return;
+    snapshot();
+    const list = cells();
+    const single = sel.from === sel.to;
+    const memo = $('fMemo').value;
+    for (let i = sel.from; i <= sel.to; i++) {
+      const p = list[i].page;
+      p.a = $('fA').value.trim(); p.as = $('fAs').value;
+      p.b = $('fB').value.trim(); p.bs = $('fBs').value;
+      if (single || memo.trim()) p.memo = memo;
+    }
+    save(); renderAll();
+  };
+
+  // ---- ページの挿入・削除（本文のみ） ----
+  function bodyIndexAt(cellIdx, after) {
+    const list = cells();
+    if (after) {
+      for (let i = cellIdx; i >= 0; i--) if (list[i].body !== undefined) return list[i].body + 1;
+      return 0;
+    }
+    for (let i = cellIdx; i < list.length; i++) if (list[i].body !== undefined) return list[i].body;
+    return state.body.length;
+  }
+  function insertPages(after) {
+    if (!sel) return;
+    snapshot();
+    const at = bodyIndexAt(after ? sel.to : sel.from, after);
+    state.body.splice(at, 0, blankPage(), blankPage());
+    const idx = cells().find(c => c.body === at).idx;
+    sel = { from: idx, to: idx + 1 }; anchor = idx;
+    save(); renderAll();
+  }
+  $('btnInsBefore').onclick = () => insertPages(false);
+  $('btnInsAfter').onclick = () => insertPages(true);
+  $('btnDel').onclick = () => {
+    if (!sel) return;
+    const idx = cells().slice(sel.from, sel.to + 1).filter(c => c.body !== undefined).map(c => c.body);
+    if (!idx.length) return;
+    if (!confirm(`P${idx[0] + 1}〜P${idx[idx.length - 1] + 1}（${idx.length}ページ）を削除します。以降のページは繰り上がります。`)) return;
+    snapshot();
+    state.body.splice(idx[0], idx.length);
+    resetSel();
+    save(); renderAll();
+  };
+
+  // ---- 画像 ----
+  $('btnImg').onclick = () => $('fileImg').click();
+  $('btnImgClear').onclick = () => {
+    if (!sel) return;
+    snapshot();
+    const list = cells();
+    for (let i = sel.from; i <= sel.to; i++) list[i].page.img = '';
+    save(); refresh();
+  };
+  function loadImage(file) {
+    return new Promise((res, rej) => {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => { URL.revokeObjectURL(url); res(img); };
+      img.onerror = () => { URL.revokeObjectURL(url); rej(new Error('画像を読み込めませんでした')); };
+      img.src = url;
+    });
+  }
+  function crop(img, sx, sw, maxW = 240) {
+    const scale = Math.min(1, maxW / sw);
+    const cv = document.createElement('canvas');
+    cv.width = Math.round(sw * scale); cv.height = Math.round(img.naturalHeight * scale);
+    const ctx = cv.getContext('2d');
+    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
+    ctx.drawImage(img, sx, 0, sw, img.naturalHeight, 0, 0, cv.width, cv.height);
+    return cv.toDataURL('image/jpeg', 0.72);
+  }
+  $('fileImg').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (!file || !sel) return;
+    try {
+      const img = await loadImage(file);
+      const list = cells();
+      const w = img.naturalWidth, h = img.naturalHeight;
+      snapshot();
+      const a = list[sel.from], b = list[sel.to];
+      if (sel.to - sel.from === 1 && w > h && sideOf[a.idx] !== sideOf[b.idx]) {
+        const [left, right] = sideOf[a.idx] === 'l' ? [a, b] : [b, a];
+        left.page.img = crop(img, 0, w / 2);
+        right.page.img = crop(img, w / 2, w / 2);
+      } else {
+        const data = crop(img, 0, w);
+        for (let i = sel.from; i <= sel.to; i++) list[i].page.img = data;
+      }
+      save(); refresh();
+    } catch (err) { alert(err.message); }
+  });
+
+  // ---- ページ一覧の直接編集 ----
+  let listSnap = false;
+  $('listBody').addEventListener('focusin', () => { listSnap = false; });
+  $('listBody').addEventListener('input', (e) => {
+    const k = e.target.dataset.k;
+    if (!k) return;
+    if (!listSnap) { snapshot(); listSnap = true; }
+    const i = +e.target.closest('tr').dataset.i;
+    cells()[i].page[k] = e.target.value;
+    save(); refresh();
+    if (e.target.tagName === 'SELECT') listSnap = false;
+  });
+
+  // ---- 設定 ----
+  const bindText = (id, key) => $(id).addEventListener('input', (e) => { state[key] = e.target.value; save(); renderSheet(); });
+  bindText('sTitle', 'title');
+  bindText('sDate', 'date');
+  bindText('sNote', 'note');
+  const bindNum = (id, key, min, max, def) => $(id).addEventListener('change', (e) => {
+    const v = Math.min(max, Math.max(min, parseInt(e.target.value, 10) || def));
+    state[key] = v; e.target.value = v; save(); renderSheet();
+  });
+  bindNum('sSpreads', 'spreadsPerRow', 2, 14, 7);
+  bindNum('sRows', 'rowsPerSheet', 1, 20, 6);
+  $('sFont').addEventListener('change', (e) => { state.fontScale = +e.target.value || 1; save(); renderSheet(); });
+  for (const [id, key] of [['sCoverMode', 'coverMode'], ['sCoverLabel', 'coverLabel'], ['sBinding', 'binding']]) {
+    $(id).addEventListener('change', (e) => { snapshot(); state[key] = e.target.value; resetSel(); save(); renderAll(); });
+  }
+  $('sPages').addEventListener('change', (e) => {
+    let n = parseInt(e.target.value, 10);
+    if (!n || n < 2) n = 2;
+    if (n % 2) n += 1;
+    n = Math.min(400, n);
+    const cur = state.body.length;
+    if (n < cur) {
+      const lost = state.body.slice(n).filter(p => p.a || p.b || p.memo || p.img).length;
+      if (lost && !confirm(`P${n + 1}以降の入力済みページ（${lost}ページ）が削除されます。よろしいですか？`)) { e.target.value = cur; return; }
+    }
+    snapshot();
+    if (n < cur) state.body.length = n;
+    else while (state.body.length < n) state.body.push(blankPage());
+    clampSel();
+    save(); renderAll();
+  });
+  $('legendEdit').addEventListener('input', (e) => {
+    const k = e.target.dataset.legend;
+    if (!k) return;
+    state.legend[k] = e.target.value; save(); renderSheet();
+  });
+
+  // ---- 外部ライブラリ ----
+  const loaded = {};
+  function loadScript(src, what) {
+    return loaded[src] || (loaded[src] = new Promise((res, rej) => {
+      const s = document.createElement('script');
+      s.src = src; s.onload = res;
+      s.onerror = () => { delete loaded[src]; rej(new Error(`${what}のライブラリを読み込めませんでした（インターネット接続を確認してください）。`)); };
+      document.head.appendChild(s);
+    }));
+  }
+
+  // ---- Excel 読込 ----
+  // 「ページ」「タイトル」の見出し行がある1行1ページの台割表を読み込む
+  const z2h = (s) => String(s ?? '').replace(/[０-９Ａ-Ｚａ-ｚ]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
+  const clean = (s) => String(s ?? '').replace(/\r?\n/g, ' ').replace(/^[\s　]+|[\s　]+$/g, '').replace(/[ 　]{2,}/g, '　');
+  const PAGE_HEAD = /^(ページ|頁|ﾍﾟｰｼﾞ|page|p|no\.?|ノンブル)$/i;
+  const TITLE_HEAD = /(タイトル|内容|項目|見出し|企画|コンテンツ)/;
+  const CHAPTER = /^(第\s*[0-9一二三四五六七八九十百]+\s*[章部編])/;
+  const CONT = /^[↓⬇︎｜|〃―ー\-]+$/;
+
+  function parseSheet(aoa) {
+    const rows = aoa.map(r => (r || []).map(v => (v instanceof Date ? v.toISOString().slice(0, 10) : v)));
+    const hr = rows.findIndex(r => r.some(v => PAGE_HEAD.test(clean(z2h(v)))) && r.some(v => TITLE_HEAD.test(clean(v))));
+    if (hr < 0) throw new Error('見出し行（「ページ」と「タイトル」の列）が見つかりませんでした。');
+    const head = rows[hr].map(v => clean(v));
+    const pageCol = head.findIndex(v => PAGE_HEAD.test(z2h(v)));
+    const titleCol = head.findIndex(v => TITLE_HEAD.test(v));
+    const width = Math.max(...rows.map(r => r.length));
+    const extraCols = [];
+    for (let c = 0; c < width; c++) {
+      if (c === pageCol || c === titleCol || PAGE_HEAD.test(z2h(head[c] || ''))) continue;
+      extraCols.push({ c, name: head[c] || '' });
+    }
+
+    // 見出しより上の行：タイトル・仕様・日付・綴じ方向
+    const meta = rows.slice(0, hr).map(r => r.map(clean).filter(Boolean)).filter(r => r.length);
+    const metaText = meta.flat().join(' ');
+    const title = meta.length ? meta[0][0] : '';
+    const notes = meta.flat().slice(1).filter(t => !/^(入稿|校了)[：:]/.test(t) || /\d/.test(z2h(t)));
+    const dm = z2h(metaText).match(/(20\d{2})[\/.\-年](\d{1,2})[\/.\-月](\d{1,2})/);
+    const date = dm ? `${dm[1]}-${dm[2].padStart(2, '0')}-${dm[3].padStart(2, '0')}` : today();
+    const binding = /右開き|右綴じ|縦組/.test(metaText) ? 'right' : /左開き|左綴じ|横組/.test(metaText) ? 'left' : 'left';
+
+    // ページ行
+    const warns = [];
+    const bodyRows = {}; const coverRows = {};
+    let prev = 0, usedHyo = false;
+    for (let r = hr + 1; r < rows.length; r++) {
+      const row = rows[r];
+      const pv = clean(z2h(row[pageCol]));
+      const t = clean(row[titleCol]);
+      const extras = extraCols.map(({ c, name }) => {
+        const v = clean(row[c]);
+        return v ? (name ? `${name}：${v}` : v) : '';
+      }).filter(Boolean);
+      const cm = pv.match(/^(表|H)\s*([1-4])$/i);
+      if (cm) {
+        if (cm[1] === '表') usedHyo = true;
+        coverRows['H' + cm[2]] = { t, extras };
+        continue;
+      }
+      if (!/^\d+$/.test(pv)) {
+        if (t) warns.push(`${r + 1}行目：ページ番号「${pv || '空欄'}」を読み取れないため、スキップしました（${t}）`);
+        continue;
+      }
+      let n = parseInt(pv, 10);
+      if (n <= prev) {
+        warns.push(`${r + 1}行目：ページ番号 ${n} が前の行と重複・逆順のため、${prev + 1} として読み込みました`);
+        n = prev + 1;
+      }
+      prev = n;
+      bodyRows[n] = { t, extras };
+    }
+    let total = prev;
+    if (!total) throw new Error('ページ番号の行が見つかりませんでした。');
+    if (total % 2) { warns.push(`本文が${total}ページ（奇数）のため、白ページを1ページ追加しました`); total += 1; }
+
+    const tagStatus = (t) => {
+      if (/【新規】|［新規］|\[新規\]/.test(t)) return 'new';
+      if (/[●?？]|未定/.test(t)) return 'tbd';
+      return '';
+    };
+    const stripTag = (t) => t.replace(/【新規】|［新規］|\[新規\]/g, '').replace(/^[\s　]+/, '');
+
+    const body = [];
+    let chapter = '', item = '', itemSt = '';
+    for (let n = 1; n <= total; n++) {
+      const src = bodyRows[n] || { t: '', extras: [] };
+      const p = blankPage();
+      const ch = z2h(src.t).match(CHAPTER);
+      if (ch) {
+        chapter = src.t; item = '扉'; itemSt = '';
+      } else if (src.t && !CONT.test(src.t)) {
+        item = stripTag(src.t); itemSt = tagStatus(src.t);
+      }
+      p.a = chapter; p.as = chapter ? 'common' : '';
+      p.b = item; p.bs = item ? itemSt : '';
+      p.memo = src.extras.filter(v => !(ch && v === '扉')).join(' ／ ');
+      body.push(p);
+    }
+
+    const cover = blankCovers();
+    for (const [k, v] of Object.entries(coverRows)) {
+      cover[k].b = stripTag(v.t); cover[k].bs = v.t ? tagStatus(v.t) : '';
+      cover[k].memo = v.extras.join(' ／ ');
+    }
+    const keys = Object.keys(coverRows);
+    const coverMode = keys.some(k => k === 'H2' || k === 'H3') ? 'four' : keys.length ? 'h1h4' : 'none';
+
+    const s = blank();
+    Object.assign(s, {
+      title, date, binding, coverMode, cover, body,
+      note: notes.join('　').replace(/(20\d{2})[\/.\-年]\d{1,2}[\/.\-月]\d{1,2}日?版?[\s　]*/g, '').trim(), // 日付はタイトル行に最新のものを表示
+      coverLabel: usedHyo ? '表' : 'H',
+      legend: { keep: '', new: '新規ページ', common: '章', tbd: '未確定（●・未定などを含む）' },
+    });
+    const nSpreads = spreads(withState(s, cells)).length;
+    // 文字が読める大きさを優先：1行7見開き×5行（足りなければ複数枚に分ける）
+    s.spreadsPerRow = 7;
+    s.rowsPerSheet = 5;
+    s.fontScale = 1.25;
+    return { state: s, warns, info: { title, total, binding, coverMode, header: head.filter(Boolean).join('／') } };
+  }
+  // 一時的に別の state でページ構成を計算する
+  function withState(s, fn) {
+    const keep = state; state = s;
+    try { return fn(); } finally { state = keep; }
+  }
+
+  // ファイル名・シート名から日付を読む（2026/09/08・260908・20260908・0908 など）
+  function nameDate(name, year) {
+    const t = z2h(name);
+    let m = t.match(/(20\d{2})[\/.\-年_](\d{1,2})[\/.\-月_](\d{1,2})/);
+    if (m) return ymd(+m[1], +m[2], +m[3]);
+    const nums = t.match(/(?<!\d)\d{4}(?:\d{2}(?:\d{2})?)?(?!\d)/g) || [];
+    for (const n of nums.reverse()) {
+      if (n.length === 8) { const d = ymd(+n.slice(0, 4), +n.slice(4, 6), +n.slice(6)); if (d) return d; }
+      if (n.length === 6) { const d = ymd(2000 + +n.slice(0, 2), +n.slice(2, 4), +n.slice(4)); if (d) return d; }
+      if (n.length === 4) { const d = ymd(year || new Date().getFullYear(), +n.slice(0, 2), +n.slice(2)); if (d) return d; }
+    }
+    return '';
+  }
+  function ymd(y, m, d) {
+    if (y < 2000 || y > 2099 || m < 1 || m > 12 || d < 1 || d > 31) return '';
+    return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+  }
+  const fmtDate = (d) => d ? d.replace(/^(\d+)-0?(\d+)-0?(\d+)$/, '$1/$2/$3') : '日付なし';
+
+  // 選んだExcel（複数可）の全シートを候補にし、日付が新しい順に並べる
+  let xlsxCands = [];
+  $('btnXlsx').onclick = () => $('fileXlsx').click();
+  $('fileXlsx').addEventListener('change', async (e) => {
+    const files = [...e.target.files];
+    e.target.value = '';
+    if (!files.length) return;
+    try {
+      await loadScript('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js', 'Excel読込');
+      const cands = [];
+      for (const [fi, file] of files.entries()) {
+        const book = window.XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: true });
+        const fileDate = nameDate(file.name.replace(/\.\w+$/, ''));
+        const year = fileDate ? +fileDate.slice(0, 4) : 0;
+        book.SheetNames.forEach((sheet, si) => {
+          const aoa = window.XLSX.utils.sheet_to_json(book.Sheets[sheet], { header: 1, raw: true, defval: '' });
+          let result = null, error = '';
+          try { result = parseSheet(aoa); } catch (err) { error = err.message; }
+          const date = nameDate(sheet, year) || fileDate || (result && result.state.date !== today() ? result.state.date : '');
+          cands.push({ file: file.name, sheet, date, result, error, order: fi * 1000 + si });
+        });
+      }
+      cands.sort((a, b) => (!!b.result - !!a.result) || (b.date || '').localeCompare(a.date || '') || a.order - b.order);
+      xlsxCands = cands;
+      if (!cands[0] || !cands[0].result) throw new Error('台割として読み込めるシートがありませんでした。\n' + (cands[0] ? cands[0].error : ''));
+      applyCand(0);
+    } catch (err) { alert(err.message || String(err)); }
+  });
+  function applyCand(k) {
+    const c = xlsxCands[k];
+    const s = c.result.state;
+    if (c.date) s.date = c.date; // シート名・ファイル名の日付（最新の更新日）を優先
+    snapshot(); state = s; resetSel(); save(); renderAll();
+    const others = xlsxCands.filter(x => x.result).length - 1;
+    const warns = c.result.warns;
+    $('importInfo').hidden = false;
+    $('importInfo').innerHTML = `「${esc(c.sheet)}」シート（${esc(fmtDate(c.date))}${k === 0 && others > 0 ? '・最新' : ''}）から作成しました`
+      + (xlsxCands.length > 1 ? `　<button id="btnOtherSheet">別のシートを選ぶ</button>` : '')
+      + (warns.length ? `<ul>${warns.map(w => `<li>${esc(w)}</li>`).join('')}</ul>` : '');
+    const btn = $('btnOtherSheet');
+    if (btn) btn.onclick = openSheetDialog;
+  }
+  function openSheetDialog() {
+    $('xSheet').innerHTML = xlsxCands.map((c, k) => c.result
+      ? `<option value="${k}">${esc(fmtDate(c.date))}　${esc(c.sheet)}（${esc(c.file)}）</option>` : '').join('');
+    previewCand();
+    $('dlgXlsx').showModal();
+  }
+  function previewCand() {
+    const c = xlsxCands[+$('xSheet').value];
+    const { info, warns, state: s } = c.result;
+    const lines = [
+      `タイトル：${info.title || '（なし）'}`,
+      `本文：${info.total}ページ　表紙：${{ none: 'なし', h1h4: 'H1・H4', four: '表1〜表4' }[info.coverMode]}　合計：${withState(s, totalPages)}ページ`,
+      `綴じ：${info.binding === 'right' ? '右開き' : '左開き'}`,
+    ];
+    if (warns.length) lines.push('', '注意：', ...warns.map(w => '・' + w));
+    $('xPreview').textContent = lines.join('\n');
+  }
+  $('xSheet').onchange = previewCand;
+  $('xCancel').onclick = () => $('dlgXlsx').close();
+  $('xOk').onclick = () => { applyCand(+$('xSheet').value); $('dlgXlsx').close(); };
+
+  // ---- ツールバー ----
+  $('optMemo').onchange = renderSheet;
+  $('optPrintList').onchange = () => document.body.classList.toggle('print-list', $('optPrintList').checked);
+  $('btnUndo').onclick = undo;
+  $('btnUndo').disabled = true;
+  document.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z' && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) {
+      e.preventDefault(); undo();
+    }
+    if (e.key === 'Escape' && sel && !$('dlgXlsx').open) { resetSel(); renderAll(); }
+  });
+  $('btnNew').onclick = () => {
+    if (!confirm('新しい台割を作成します。現在の内容は消えます（「元に戻す」で復元できます）。')) return;
+    $('importInfo').hidden = true; snapshot(); state = blank(); resetSel(); save(); renderAll();
+  };
+  $('btnSample').onclick = () => {
+    if (!confirm('サンプル（2028パンフ台割）を読み込みます。現在の内容は置き換わります（「元に戻す」で復元できます）。')) return;
+    $('importInfo').hidden = true; snapshot(); state = sample(); resetSel(); save(); renderAll();
+  };
+  $('btnPrint').onclick = () => window.print();
+
+  const fileBase = () => `台割_${(state.title || '無題').replace(/[\\/:*?"<>|\s]+/g, '_')}_${state.date || today()}`;
+  function download(blob, name) {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }
+  $('btnSave').onclick = () => {
+    download(new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' }), fileBase() + '.json');
+  };
+  $('btnLoad').onclick = () => $('fileJson').click();
+  $('fileJson').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+      const s = normalize(JSON.parse(await file.text()));
+      if (!s) throw new Error();
+      $('importInfo').hidden = true; snapshot(); state = s; resetSel(); save(); renderAll();
+    } catch { alert('台割のJSONファイルとして読み込めませんでした。'); }
+  });
+
+  // ---- PowerPoint 出力（A4横・1行数ごとに1枚） ----
+  $('btnPptx').onclick = async () => {
+    const btn = $('btnPptx');
+    btn.disabled = true;
+    try {
+      await loadScript('https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js', 'PowerPoint出力');
+      const blob = await buildPptx().write({ outputType: 'blob' });
+      download(blob, fileBase() + '.pptx');
+    } catch (err) { alert(err.message || String(err)); }
+    finally { btn.disabled = false; }
+  };
+
+  function buildPptx() {
+    const pres = new window.PptxGenJS();
+    pres.defineLayout({ name: 'A4L', width: 10.833, height: 7.5 });
+    pres.layout = 'A4L';
+    const FONT = 'Meiryo';
+    const W = 10.833, M = 0.5;
+    const t = titleText();
+    const { list, per, sheets } = layout();
+    const perSheet = Math.max(1, (state.rowsPerSheet | 0) || 6);
+    const gapRatio = 0.28;
+    const unit = (W - 2 * M) / (per * 2 + (per - 1) * gapRatio);
+    const labelH = 0.2, rowGap = 0.12;
+    const top = state.note ? 0.9 : 0.7, bottom = 7.5 - 0.55;
+    const maxPgH = ((bottom - top) - perSheet * (labelH + rowGap)) / perSheet;
+    const pgW = unit, pgH = Math.min(unit * 1.414, maxPgH);
+    const xOf = (i) => M + Math.floor(i / 2) * (2 + gapRatio) * unit + (i % 2) * unit;
+    const small = per > 8;
+    const fs = state.fontScale || 1;
+    const legend = legendItems();
+
+    sheets.forEach((rows, n) => {
+      const slide = pres.addSlide();
+      const pageNo = sheets.length > 1 ? `（${n + 1}/${sheets.length}）` : '';
+      slide.addText(`${t.main}　${t.sub}${pageNo}`, { x: M, y: 0.2, w: W - 2 * M, h: 0.35, fontFace: FONT, fontSize: 12, bold: true, color: '1F2328', margin: 0, isTextBox: true });
+      if (state.note) slide.addText(state.note, { x: M, y: 0.52, w: W - 2 * M, h: 0.25, fontFace: FONT, fontSize: 8, color: '656D76', margin: 0, fit: 'shrink', isTextBox: true });
+
+      rows.forEach((slots, r) => {
+        const y0 = top + r * (labelH + pgH + rowGap);
+        const py = y0 + labelH;
+        for (let s = 0; s < per; s++) {
+          const l = slots[s * 2], rr = slots[s * 2 + 1];
+          if (!l && !rr) continue;
+          const sx = xOf(s * 2);
+          [l, rr].forEach((c, k) => {
+            if (!c) return;
+            const x = sx + k * pgW;
+            if (c.page.img) {
+              slide.addImage({ data: c.page.img, x, y: py, w: pgW, h: pgH, sizing: { type: 'cover', w: pgW, h: pgH } });
+            } else if (c.page.memo && $('optMemo').checked) {
+              slide.addText(c.page.memo, { x: x + 0.03, y: py + pgH * 0.74, w: pgW - 0.06, h: pgH * 0.24, fontFace: FONT, fontSize: (small ? 5 : 6) * fs, color: '656D76', valign: 'bottom', margin: 0, fit: 'shrink', isTextBox: true });
+            }
+            slide.addText(c.label, {
+              x, y: y0, w: pgW, h: labelH, fontFace: FONT, fontSize: (small ? 6.5 : 7.5) * fs, color: '1F2328',
+              align: k ? 'right' : 'left', valign: 'bottom', margin: 0, isTextBox: true,
+            });
+            slide.addShape(pres.shapes.RECTANGLE, { x, y: py, w: pgW, h: pgH, line: { color: '1F2328', width: 0.75 }, fill: { type: 'none' } });
+          });
+        }
+        const bandSize = (small ? 6 : 7.5) * fs; // pt
+        const lineH = bandSize * 1.3 / 72; // inch
+        const tiers = { a: { y: pgH * 0.06, h: Math.min(lineH + 0.06, pgH * 0.2) }, b: { y: pgH * 0.06 + Math.min(lineH + 0.06, pgH * 0.2) + 0.05, h: Math.min(lineH * 3 + 0.06, pgH * 0.46) } };
+        for (const key of ['a', 'b']) {
+          for (const b of bands(slots, key)) {
+            const st = stOf(b.st);
+            const x = xOf(b.start), x2 = xOf(b.end) + pgW;
+            slide.addText(b.text, {
+              shape: pres.shapes.RECTANGLE,
+              x, y: py + tiers[key].y, w: x2 - x, h: tiers[key].h,
+              fill: { color: st.fill }, line: { color: '595959', width: 0.5 },
+              fontFace: FONT, fontSize: bandSize, color: st.ink, align: 'center', valign: 'middle', margin: 0.02, fit: 'shrink', isTextBox: true,
+            });
+          }
+        }
+      });
+
+      let lx = M;
+      legend.forEach(s => {
+        slide.addShape(pres.shapes.RECTANGLE, { x: lx, y: 7.5 - 0.4, w: 0.35, h: 0.14, fill: { color: s.fill }, line: { color: '595959', width: 0.5 } });
+        const txt = state.legend[s.id];
+        const tw = Math.min(3, 0.15 + txt.length * 0.12);
+        slide.addText(txt, { x: lx + 0.42, y: 7.5 - 0.45, w: tw, h: 0.24, fontFace: FONT, fontSize: 8, color: '1F2328', valign: 'middle', margin: 0, isTextBox: true });
+        lx += 0.42 + tw + 0.25;
+      });
+
+      const onSheet = new Set(rows.flat().filter(Boolean).map(c => c.idx));
+      const notes = list.filter(c => onSheet.has(c.idx) && (c.page.b || c.page.memo))
+        .map(c => `${c.label}：${[c.page.b, c.page.memo].filter(Boolean).join(' ／ ')}`).join('\n');
+      if (notes) slide.addNotes(notes);
+    });
+    return pres;
+  }
+
+  renderAll();
+})();
+</script>
+</body>
+</html>
